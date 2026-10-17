@@ -1,5 +1,6 @@
-import { MAX_SCORE_PER_INCIDENT } from '../data/difficulty';
+import { DIFFICULTIES, MAX_SCORE_PER_INCIDENT } from '../data/difficulty';
 import type { DecisionRecord, GameState } from '../types';
+import { formatClock, formatMoney } from '../utils/format';
 
 export type Grade = 'S' | 'A' | 'B' | 'C' | 'D' | 'F';
 
@@ -142,4 +143,141 @@ export function buildRecommendations(state: GameState, stats: ShiftStats): strin
     );
   }
   return recs.slice(0, 3);
+}
+
+function qualityLabel(record: DecisionRecord): string {
+  if (record.timedOut) return 'Timed out';
+  if (record.quality === 'success') return 'Resolved';
+  if (record.quality === 'partial') return 'Partial';
+  return 'Backfired';
+}
+
+function scoreLine(score: number): string {
+  return `${score >= 0 ? '+' : ''}${score}`;
+}
+
+/** Stable filename for the downloaded Markdown postmortem. */
+export function postmortemFilename(state: GameState, when = new Date()): string {
+  const y = when.getFullYear();
+  const m = String(when.getMonth() + 1).padStart(2, '0');
+  const d = String(when.getDate()).padStart(2, '0');
+  const finished = state.gameOverReason === null && state.phase === 'over';
+  const tag = finished ? 'complete' : state.gameOverReason ? 'ended-early' : 'shift';
+  return `incident-postmortem-${y}-${m}-${d}-${state.difficulty}-${tag}.md`;
+}
+
+/**
+ * Build a Markdown incident postmortem from tracked shift data.
+ * Derived recommendations come from `buildRecommendations`; no invented metrics.
+ */
+export function buildPostmortemMarkdown(state: GameState): string {
+  const config = DIFFICULTIES[state.difficulty];
+  const stats = computeStats(state.records);
+  const finished = state.gameOverReason === null;
+  const grade = gradeFor(state.score, state.queue.length, finished);
+  const rank = rankFor(state.score, Math.max(1, state.records.length));
+  const recommendations = buildRecommendations(state, stats);
+  const lines: string[] = [];
+
+  lines.push('# Incident Postmortem');
+  lines.push('');
+  lines.push(`- **Status:** ${finished ? 'Shift complete' : 'Shift ended early'}`);
+  lines.push(`- **Difficulty:** ${config.label}`);
+  lines.push(`- **Grade:** ${grade}`);
+  lines.push(`- **Rank:** ${rank}`);
+  lines.push(`- **Final score:** ${state.score.toLocaleString()}`);
+  lines.push(`- **Shift duration:** ${formatClock(state.shiftElapsedSec)}`);
+  lines.push('');
+
+  if (!finished && state.gameOverReason) {
+    lines.push('## Early termination');
+    lines.push('');
+    lines.push(state.gameOverReason);
+    lines.push('');
+  }
+
+  lines.push('## Key metrics');
+  lines.push('');
+  lines.push(`| Metric | Value |`);
+  lines.push(`| --- | --- |`);
+  lines.push(`| Incidents resolved | ${stats.resolved}/${state.queue.length || 0} |`);
+  lines.push(`| Decision accuracy | ${stats.accuracyPct}% |`);
+  lines.push(
+    `| Avg response time | ${stats.avgResponseSec > 0 ? `${Math.round(stats.avgResponseSec)}s` : '—'} |`,
+  );
+  lines.push(`| Successes / partials / failures | ${stats.successes} / ${stats.partials} / ${stats.failures} |`);
+  lines.push(`| Timed out | ${stats.timeouts} |`);
+  lines.push(`| Risky calls | ${stats.riskyTaken} |`);
+  lines.push(`| Best streak | ${state.bestStreak} |`);
+  lines.push(`| Revenue saved | ${formatMoney(state.metrics.revenueSaved)} |`);
+  lines.push(`| Revenue lost | ${formatMoney(state.metrics.revenueLost)} |`);
+  lines.push(`| Engineering spend | ${formatMoney(state.metrics.spend)} |`);
+  lines.push('');
+
+  if (stats.strongest || stats.mostDamaging) {
+    lines.push('## Notable decisions');
+    lines.push('');
+    if (stats.strongest) {
+      lines.push(
+        `- **Strongest call** (${scoreLine(stats.strongest.score)} pts): ${stats.strongest.incidentTitle} — ${stats.strongest.actionLabel ?? 'No action taken'}`,
+      );
+    }
+    if (stats.mostDamaging) {
+      lines.push(
+        `- **Most damaging** (${scoreLine(stats.mostDamaging.score)} pts): ${stats.mostDamaging.incidentTitle} — ${stats.mostDamaging.actionLabel ?? 'No response before the timer expired'}`,
+      );
+    }
+    lines.push('');
+  }
+
+  lines.push('## Final company state');
+  lines.push('');
+  lines.push(`- System health: ${Math.round(state.metrics.health)}%`);
+  lines.push(`- Customer trust: ${Math.round(state.metrics.trust)}%`);
+  lines.push(`- Budget remaining: ${formatMoney(state.metrics.budget)}`);
+  lines.push('');
+
+  lines.push('## Incident timeline');
+  lines.push('');
+  if (state.records.length === 0) {
+    lines.push('_The shift ended before any incident was handled._');
+    lines.push('');
+  } else {
+    for (const [i, record] of state.records.entries()) {
+      const action = record.timedOut
+        ? 'No response before the countdown expired.'
+        : (record.actionLabel ?? 'Unknown action');
+      const responseBit = record.timedOut
+        ? ''
+        : ` · responded in ${Math.round(record.responseSec)}s`;
+      lines.push(
+        `${i + 1}. **T+${formatClock(record.atShiftSec)}** · ${record.severity} · ${record.incidentTitle}`,
+      );
+      lines.push(`   - Action: ${action}`);
+      lines.push(
+        `   - Outcome: ${qualityLabel(record)} · ${scoreLine(record.score)} pts${responseBit}`,
+      );
+      if (record.explanation) {
+        lines.push(`   - Notes: ${record.explanation}`);
+      }
+      lines.push('');
+    }
+  }
+
+  lines.push('## Recommendations');
+  lines.push('');
+  if (recommendations.length === 0) {
+    lines.push('_No recommendations generated for this shift._');
+  } else {
+    recommendations.forEach((rec, i) => {
+      lines.push(`${i + 1}. ${rec}`);
+    });
+  }
+  lines.push('');
+  lines.push('---');
+  lines.push('');
+  lines.push('_Generated locally by System Down — Incident Response Simulator._');
+  lines.push('');
+
+  return lines.join('\n');
 }

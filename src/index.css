@@ -1465,10 +1465,46 @@ button:focus-visible,
 
 .pm-actions {
   display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0 24px;
+}
+
+.pm-export,
+.pm-nav-actions {
+  display: flex;
   gap: 12px;
   justify-content: center;
-  padding: 8px 0 24px;
   flex-wrap: wrap;
+}
+
+.btn-export {
+  background: rgba(56, 189, 248, 0.12);
+  border-color: rgba(56, 189, 248, 0.55);
+  color: var(--accent);
+}
+
+.btn-export:hover {
+  background: rgba(56, 189, 248, 0.2);
+  border-color: var(--accent);
+  color: #9ae4ff;
+}
+
+.pm-export-feedback {
+  min-height: 1.25em;
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-faint);
+  text-align: center;
+}
+
+.pm-export-feedback.is-ok {
+  color: var(--ok);
+}
+
+.pm-export-feedback.is-bad {
+  color: var(--bad);
 }
 
 /* ---------- Toasts ---------- */
@@ -1941,6 +1977,18 @@ button:focus-visible,
   .pm-score {
     margin-left: 0;
     align-items: flex-start;
+  }
+
+  .pm-export,
+  .pm-nav-actions {
+    width: 100%;
+  }
+
+  .pm-export .btn,
+  .pm-nav-actions .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+    min-width: min(100%, 160px);
   }
 }
 

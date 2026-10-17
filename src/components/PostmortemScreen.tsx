@@ -1,7 +1,10 @@
+import { useEffect, useRef, useState } from 'react';
 import {
   Award,
   CheckCircle2,
+  ClipboardCopy,
   Clock3,
+  Download,
   FileText,
   HeartPulse,
   HelpCircle,
@@ -18,8 +21,16 @@ import {
 } from 'lucide-react';
 import { DIFFICULTIES } from '../data/difficulty';
 import type { Game } from '../game/useGame';
-import { buildRecommendations, computeStats, gradeFor, rankFor } from '../game/report';
+import {
+  buildPostmortemMarkdown,
+  buildRecommendations,
+  computeStats,
+  gradeFor,
+  postmortemFilename,
+  rankFor,
+} from '../game/report';
 import type { DecisionRecord } from '../types';
+import { copyTextToClipboard, downloadTextFile } from '../utils/export';
 import { formatClock, formatMoney } from '../utils/format';
 
 function qualityMeta(record: DecisionRecord) {
@@ -32,6 +43,8 @@ function qualityMeta(record: DecisionRecord) {
   return { label: 'Backfired', tone: 'bad', icon: <XCircle size={13} aria-hidden="true" /> };
 }
 
+type ExportFeedback = { tone: 'ok' | 'bad'; message: string } | null;
+
 export function PostmortemScreen({ game }: { game: Game }) {
   const { state } = game;
   const config = DIFFICULTIES[state.difficulty];
@@ -40,6 +53,56 @@ export function PostmortemScreen({ game }: { game: Game }) {
   const grade = gradeFor(state.score, state.queue.length, finished);
   const rank = rankFor(state.score, Math.max(1, state.records.length));
   const recommendations = buildRecommendations(state, stats);
+  const [feedback, setFeedback] = useState<ExportFeedback>(null);
+  const [copyBusy, setCopyBusy] = useState(false);
+  const feedbackTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (feedbackTimer.current !== null) window.clearTimeout(feedbackTimer.current);
+    };
+  }, []);
+
+  function showFeedback(next: ExportFeedback, holdMs = 4000) {
+    if (feedbackTimer.current !== null) window.clearTimeout(feedbackTimer.current);
+    setFeedback(next);
+    if (next) {
+      feedbackTimer.current = window.setTimeout(() => setFeedback(null), holdMs);
+    }
+  }
+
+  function handleDownload() {
+    try {
+      const markdown = buildPostmortemMarkdown(state);
+      downloadTextFile(postmortemFilename(state), markdown);
+      showFeedback({ tone: 'ok', message: 'Report download started.' });
+    } catch {
+      showFeedback({
+        tone: 'bad',
+        message: 'Could not download the report. Try Copy Report instead.',
+      });
+    }
+  }
+
+  async function handleCopy() {
+    setCopyBusy(true);
+    try {
+      const markdown = buildPostmortemMarkdown(state);
+      const result = await copyTextToClipboard(markdown);
+      if (result.ok) {
+        showFeedback({ tone: 'ok', message: 'Report copied to clipboard.' });
+      } else {
+        showFeedback({ tone: 'bad', message: result.error });
+      }
+    } catch {
+      showFeedback({
+        tone: 'bad',
+        message: 'Clipboard is unavailable. Try Download Report instead.',
+      });
+    } finally {
+      setCopyBusy(false);
+    }
+  }
 
   return (
     <main className="postmortem">
@@ -222,18 +285,42 @@ export function PostmortemScreen({ game }: { game: Game }) {
       </div>
 
       <footer className="pm-actions">
-        <button
-          type="button"
-          className="btn btn-primary btn-lg"
-          onClick={() => game.start(state.difficulty, state.openResponsePreferred)}
+        <div className="pm-export" role="group" aria-label="Export postmortem report">
+          <button type="button" className="btn btn-export btn-lg" onClick={handleDownload}>
+            <Download size={17} aria-hidden="true" />
+            Download Report
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-lg"
+            onClick={() => void handleCopy()}
+            disabled={copyBusy}
+          >
+            <ClipboardCopy size={17} aria-hidden="true" />
+            {copyBusy ? 'Copying…' : 'Copy Report'}
+          </button>
+        </div>
+        <div className="pm-nav-actions">
+          <button
+            type="button"
+            className="btn btn-primary btn-lg"
+            onClick={() => game.start(state.difficulty, state.openResponsePreferred)}
+          >
+            <RotateCcw size={17} aria-hidden="true" />
+            Restart Shift
+          </button>
+          <button type="button" className="btn btn-ghost btn-lg" onClick={game.goHome}>
+            <Home size={17} aria-hidden="true" />
+            Return Home
+          </button>
+        </div>
+        <p
+          className={`pm-export-feedback${feedback ? ` is-${feedback.tone}` : ''}`}
+          role="status"
+          aria-live="polite"
         >
-          <RotateCcw size={17} aria-hidden="true" />
-          Restart Shift
-        </button>
-        <button type="button" className="btn btn-ghost btn-lg" onClick={game.goHome}>
-          <Home size={17} aria-hidden="true" />
-          Return Home
-        </button>
+          {feedback?.message ?? ''}
+        </p>
       </footer>
     </main>
   );
