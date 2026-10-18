@@ -40,6 +40,7 @@ The game is designed to be understandable to nontechnical players while still us
 - **Learning-oriented feedback** after every decision
 - **Three difficulty levels** that change timers, resources, consequence severity, and shift length
 - **End-of-shift postmortem** with grade (F–S), rank, accuracy, timeline, and recommendations
+- **Export postmortem** as a downloadable Markdown report, or copy it to the clipboard
 - **Achievements and high score** saved in `localStorage`
 - **Responsive layout** and keyboard shortcuts
 - **No backend** — the entire game runs in the browser
@@ -51,7 +52,7 @@ The game is designed to be understandable to nontechnical players while still us
 3. Investigate sources (deployments, logs, metrics, status pages, and more) to unlock deeper evidence — investigation spends response time.
 4. Remediate with multiple-choice actions (always available on Junior; unlocked after investigation on Engineer/Senior), or type an open response on Senior.
 5. Review the outcome only after you decide: metric changes, score impact, and an engineering explanation.
-6. Continue through the remaining incidents and read your end-of-shift postmortem.
+6. Continue through the remaining incidents, read your end-of-shift postmortem, and optionally download or copy the Markdown report.
 
 If the timer runs out with no response, a failure consequence is applied automatically. One poor decision is rarely fatal — recovery between incidents is intentional — but health, trust, or budget at zero ends the shift early.
 
@@ -161,7 +162,6 @@ Play here: [https://manpreets2.github.io/system-down-simulator/](https://manpree
 - Daily seeded shifts with shareable score cards
 - Mid-shift resource spends (contractors, monitoring upgrades)
 - Color-blind palette audit and localization
-- Markdown export of the shift timeline as a postmortem draft
 
 ## Author
 

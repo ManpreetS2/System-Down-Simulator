@@ -1465,10 +1465,47 @@ button:focus-visible,
 
 .pm-actions {
   display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0 24px;
+}
+
+.pm-export,
+.pm-nav-actions {
+  display: flex;
   gap: 12px;
   justify-content: center;
-  padding: 8px 0 24px;
   flex-wrap: wrap;
+}
+
+.btn-export {
+  background: rgba(56, 189, 248, 0.12);
+  border-color: rgba(56, 189, 248, 0.55);
+  color: var(--accent);
+}
+
+.btn-export:hover {
+  background: rgba(56, 189, 248, 0.2);
+  border-color: var(--accent);
+  color: #9ae4ff;
+}
+
+.pm-export-feedback {
+  min-height: 1.35em;
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.35em;
+  color: var(--text-faint);
+  text-align: center;
+}
+
+.pm-export-feedback.is-ok {
+  color: var(--ok);
+}
+
+.pm-export-feedback.is-bad {
+  color: var(--bad);
 }
 
 /* ---------- Toasts ---------- */
@@ -1482,6 +1519,14 @@ button:focus-visible,
   gap: 10px;
   z-index: 50;
   max-width: min(360px, calc(100vw - 36px));
+  /* Keep stacked toasts from growing through the action footer. */
+  max-height: min(420px, calc(100vh - 120px));
+  overflow-y: auto;
+  pointer-events: none;
+}
+
+.toast-stack > * {
+  pointer-events: auto;
 }
 
 .toast {
@@ -1885,6 +1930,20 @@ button:focus-visible,
   .pm-columns {
     grid-template-columns: 1fr;
   }
+
+  /*
+   * Bottom-anchored toasts sit on top of Postmortem export/nav actions on
+   * phone/tablet widths (full-width buttons + near-full-width toasts).
+   * Anchor the stack to the top instead — same cards/design, footer stays free.
+   */
+  .toast-stack {
+    top: 12px;
+    bottom: auto;
+    right: 12px;
+    left: 12px;
+    max-width: none;
+    max-height: min(380px, calc(100vh - 200px));
+  }
 }
 
 @media (max-width: 720px) {
@@ -1941,6 +2000,18 @@ button:focus-visible,
   .pm-score {
     margin-left: 0;
     align-items: flex-start;
+  }
+
+  .pm-export,
+  .pm-nav-actions {
+    width: 100%;
+  }
+
+  .pm-export .btn,
+  .pm-nav-actions .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+    min-width: min(100%, 160px);
   }
 }
 

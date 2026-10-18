@@ -2,6 +2,7 @@ import { DIFFICULTIES } from '../data/difficulty';
 import { getIncidentBrief } from '../data/investigations';
 import { getIncident } from '../data/incidents';
 import type { GradeResult } from './grader';
+import { isViteTestMode, readTestHooks } from './testHooks';
 import type {
   DecisionRecord,
   DelayedQueued,
@@ -113,6 +114,14 @@ function scenarioPhaseFor(state: Pick<GameState, 'investigatedSources' | 'diffic
 function beginIncident(state: GameState, now: number): GameState {
   const incidentId = state.queue[state.index];
   const config = DIFFICULTIES[state.difficulty];
+  let timerSec = config.timerSec;
+  // Test-mode only — Vite replaces MODE at build time and DCE's this branch.
+  if (isViteTestMode()) {
+    const hooks = readTestHooks();
+    if (hooks?.timerSec != null && hooks.timerSec > 0) {
+      timerSec = hooks.timerSec;
+    }
+  }
   return {
     ...state,
     phase: 'incident',
@@ -121,11 +130,10 @@ function beginIncident(state: GameState, now: number): GameState {
     scenarioPhase: config.minInvestigationsBeforeActions > 0 ? 'triage' : 'ready',
     pendingOpenResponse: null,
     incidentStartedAt: now,
-    incidentDeadline: now + config.timerSec * 1000,
+    incidentDeadline: now + timerSec * 1000,
     lastResult: null,
   };
 }
-
 const clamp = (v: number, min: number, max: number): number => Math.min(max, Math.max(min, v));
 
 /** Negative consequences scale with difficulty; positive ones do not. */
@@ -321,8 +329,31 @@ export function reducer(state: GameState, action: GameAction): GameState {
   switch (action.type) {
     case 'START': {
       const fresh = initialState(action.difficulty);
+      let metrics = fresh.metrics;
+      let minHealth = fresh.minHealth;
+      let minTrust = fresh.minTrust;
+      // Test-mode only — starting metric overrides for early-failure e2e scenarios.
+      if (isViteTestMode()) {
+        const hooks = readTestHooks();
+        if (hooks) {
+          if (hooks.startHealth != null) {
+            metrics = { ...metrics, health: hooks.startHealth };
+            minHealth = hooks.startHealth;
+          }
+          if (hooks.startTrust != null) {
+            metrics = { ...metrics, trust: hooks.startTrust };
+            minTrust = hooks.startTrust;
+          }
+          if (hooks.startBudget != null) {
+            metrics = { ...metrics, budget: hooks.startBudget };
+          }
+        }
+      }
       const started: GameState = {
         ...fresh,
+        metrics,
+        minHealth,
+        minTrust,
         queue: action.queue,
         shiftStartedAt: action.now,
         openResponsePreferred:

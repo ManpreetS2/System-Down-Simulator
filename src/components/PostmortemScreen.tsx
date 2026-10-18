@@ -1,7 +1,10 @@
+import { useEffect, useRef, useState } from 'react';
 import {
   Award,
   CheckCircle2,
+  ClipboardCopy,
   Clock3,
+  Download,
   FileText,
   HeartPulse,
   HelpCircle,
@@ -18,9 +21,19 @@ import {
 } from 'lucide-react';
 import { DIFFICULTIES } from '../data/difficulty';
 import type { Game } from '../game/useGame';
-import { buildRecommendations, computeStats, gradeFor, rankFor } from '../game/report';
+import {
+  buildPostmortemMarkdown,
+  buildRecommendations,
+  computeStats,
+  gradeFor,
+  isShiftFinished,
+  postmortemFilename,
+  rankFor,
+} from '../game/report';
 import type { DecisionRecord } from '../types';
+import { copyTextToClipboard, downloadTextFile } from '../utils/export';
 import { formatClock, formatMoney } from '../utils/format';
+import { formatScore } from '../utils/markdown';
 
 function qualityMeta(record: DecisionRecord) {
   if (record.timedOut)
@@ -32,14 +45,80 @@ function qualityMeta(record: DecisionRecord) {
   return { label: 'Backfired', tone: 'bad', icon: <XCircle size={13} aria-hidden="true" /> };
 }
 
+type ExportFeedback = { tone: 'ok' | 'bad'; message: string } | null;
+
 export function PostmortemScreen({ game }: { game: Game }) {
   const { state } = game;
   const config = DIFFICULTIES[state.difficulty];
   const stats = computeStats(state.records);
-  const finished = state.gameOverReason === null;
+  const finished = isShiftFinished(state);
   const grade = gradeFor(state.score, state.queue.length, finished);
   const rank = rankFor(state.score, Math.max(1, state.records.length));
   const recommendations = buildRecommendations(state, stats);
+  const [feedback, setFeedback] = useState<ExportFeedback>(null);
+  const [liveNonce, setLiveNonce] = useState(0);
+  const [copyBusy, setCopyBusy] = useState(false);
+  const feedbackTimer = useRef<number | null>(null);
+  const copyButtonRef = useRef<HTMLButtonElement>(null);
+  const copyBusyRef = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      if (feedbackTimer.current !== null) window.clearTimeout(feedbackTimer.current);
+    };
+  }, []);
+
+  function showFeedback(next: ExportFeedback, holdMs = 4000) {
+    if (feedbackTimer.current !== null) window.clearTimeout(feedbackTimer.current);
+    // Clear then set so identical messages re-announce in the aria-live region.
+    setFeedback(null);
+    setLiveNonce((n) => n + 1);
+    window.requestAnimationFrame(() => {
+      setFeedback(next);
+      if (next) {
+        feedbackTimer.current = window.setTimeout(() => setFeedback(null), holdMs);
+      }
+    });
+  }
+
+  function handleDownload() {
+    try {
+      const markdown = buildPostmortemMarkdown(state);
+      downloadTextFile(postmortemFilename(state), markdown);
+      showFeedback({ tone: 'ok', message: 'Report download started.' });
+    } catch {
+      showFeedback({
+        tone: 'bad',
+        message: 'Could not download the report. Try Copy Report instead.',
+      });
+    }
+  }
+
+  async function handleCopy() {
+    // Ref guard: React state can be stale across a fast double-click.
+    if (copyBusyRef.current) return;
+    copyBusyRef.current = true;
+    setCopyBusy(true);
+    try {
+      const markdown = buildPostmortemMarkdown(state);
+      const result = await copyTextToClipboard(markdown);
+      if (result.ok) {
+        showFeedback({ tone: 'ok', message: 'Report copied to clipboard.' });
+      } else {
+        showFeedback({ tone: 'bad', message: result.error });
+      }
+    } catch {
+      showFeedback({
+        tone: 'bad',
+        message: 'Clipboard is unavailable. Try Download Report instead.',
+      });
+    } finally {
+      copyBusyRef.current = false;
+      setCopyBusy(false);
+      // Keep keyboard focus on Copy even if the fallback temporarily moved it.
+      copyButtonRef.current?.focus({ preventScroll: true });
+    }
+  }
 
   return (
     <main className="postmortem">
@@ -65,9 +144,9 @@ export function PostmortemScreen({ game }: { game: Game }) {
           )}
         </div>
         <div className="pm-score">
-          <span className="pm-score-value mono">{state.score.toLocaleString()}</span>
+          <span className="pm-score-value mono">{formatScore(state.score)}</span>
           <span className="pm-score-label">final score</span>
-          <span className="pm-score-best">best: {game.highScore.toLocaleString()}</span>
+          <span className="pm-score-best">best: {formatScore(game.highScore)}</span>
         </div>
       </header>
 
@@ -222,18 +301,46 @@ export function PostmortemScreen({ game }: { game: Game }) {
       </div>
 
       <footer className="pm-actions">
-        <button
-          type="button"
-          className="btn btn-primary btn-lg"
-          onClick={() => game.start(state.difficulty, state.openResponsePreferred)}
+        <div className="pm-export" role="group" aria-label="Export postmortem report">
+          <button type="button" className="btn btn-export btn-lg" onClick={handleDownload}>
+            <Download size={17} aria-hidden="true" />
+            Download Report
+          </button>
+          <button
+            ref={copyButtonRef}
+            type="button"
+            className="btn btn-ghost btn-lg"
+            onClick={() => void handleCopy()}
+            aria-busy={copyBusy}
+          >
+            <ClipboardCopy size={17} aria-hidden="true" />
+            {copyBusy ? 'Copying…' : 'Copy Report'}
+          </button>
+        </div>
+        <div className="pm-nav-actions">
+          <button
+            type="button"
+            className="btn btn-primary btn-lg"
+            onClick={() => game.start(state.difficulty, state.openResponsePreferred)}
+          >
+            <RotateCcw size={17} aria-hidden="true" />
+            Restart Shift
+          </button>
+          <button type="button" className="btn btn-ghost btn-lg" onClick={game.goHome}>
+            <Home size={17} aria-hidden="true" />
+            Return Home
+          </button>
+        </div>
+        <p
+          key={liveNonce}
+          data-feedback-nonce={liveNonce}
+          className={`pm-export-feedback${feedback ? ` is-${feedback.tone}` : ''}`}
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
         >
-          <RotateCcw size={17} aria-hidden="true" />
-          Restart Shift
-        </button>
-        <button type="button" className="btn btn-ghost btn-lg" onClick={game.goHome}>
-          <Home size={17} aria-hidden="true" />
-          Return Home
-        </button>
+          {feedback?.message ?? '\u00a0'}
+        </p>
       </footer>
     </main>
   );
