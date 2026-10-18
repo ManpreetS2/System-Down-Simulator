@@ -1519,6 +1519,14 @@ button:focus-visible,
   gap: 10px;
   z-index: 50;
   max-width: min(360px, calc(100vw - 36px));
+  /* Keep stacked toasts from growing through the action footer. */
+  max-height: min(420px, calc(100vh - 120px));
+  overflow-y: auto;
+  pointer-events: none;
+}
+
+.toast-stack > * {
+  pointer-events: auto;
 }
 
 .toast {
@@ -1921,6 +1929,20 @@ button:focus-visible,
 
   .pm-columns {
     grid-template-columns: 1fr;
+  }
+
+  /*
+   * Bottom-anchored toasts sit on top of Postmortem export/nav actions on
+   * phone/tablet widths (full-width buttons + near-full-width toasts).
+   * Anchor the stack to the top instead — same cards/design, footer stays free.
+   */
+  .toast-stack {
+    top: 12px;
+    bottom: auto;
+    right: 12px;
+    left: 12px;
+    max-width: none;
+    max-height: min(380px, calc(100vh - 200px));
   }
 }
 

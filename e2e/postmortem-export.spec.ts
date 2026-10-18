@@ -1,9 +1,12 @@
 import { expect, test, type Page } from '@playwright/test';
 import {
+  assertHitTestable,
   assertNoHorizontalOverflow,
+  clearStoredAchievements,
   continueFromResult,
   e2eUrl,
   investigateFirstSource,
+  playAchievementShiftToPostmortem,
   playThroughToPostmortem,
   readPostmortemGrade,
   readPostmortemRank,
@@ -202,44 +205,71 @@ test.describe('Export Incident Postmortem', () => {
     expect(md).toMatch(/You let (an|\d+) incident/);
   });
 
-  test('desktop 1440px layout: export buttons visible, no overflow', async ({ page }) => {
+  test('desktop 1440px layout: export/nav hit-testable with achievement toasts', async ({
+    page,
+  }) => {
+    await clearStoredAchievements(page);
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(
       e2eUrl({
-        e2eQueue: 'failed-deploy',
+        e2eQueue: 'failed-deploy,db-overload,ssl-expired',
         e2eTimerSec: 90,
         e2eSeed: 11,
       }),
     );
-    await startJuniorShift(page);
-    await playThroughToPostmortem(page, { maxIncidents: 3 });
+    await playAchievementShiftToPostmortem(page);
 
-    await expect(page.getByRole('button', { name: 'Download Report' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Copy Report' })).toBeVisible();
-    await page.getByRole('button', { name: 'Download Report' }).scrollIntoViewIfNeeded();
+    await assertHitTestable(page, 'Download Report');
+    await assertHitTestable(page, 'Copy Report');
+    await assertHitTestable(page, 'Return Home');
     await assertNoHorizontalOverflow(page);
   });
 
-  test('mobile 390px layout: export buttons usable, no overflow', async ({ page }) => {
+  test('tablet 768px layout: export/nav hit-testable with achievement toasts', async ({
+    page,
+  }) => {
+    await clearStoredAchievements(page);
+    await page.setViewportSize({ width: 768, height: 900 });
+    await page.goto(
+      e2eUrl({
+        e2eQueue: 'failed-deploy,db-overload,ssl-expired',
+        e2eTimerSec: 90,
+        e2eSeed: 12,
+      }),
+    );
+    await playAchievementShiftToPostmortem(page);
+
+    await assertHitTestable(page, 'Download Report');
+    await assertHitTestable(page, 'Copy Report');
+    await assertHitTestable(page, 'Return Home');
+    await assertNoHorizontalOverflow(page);
+  });
+
+  test('mobile 390px layout: export/nav hit-testable with achievement toasts', async ({
+    page,
+  }) => {
+    await clearStoredAchievements(page);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(
       e2eUrl({
-        e2eQueue: 'failed-deploy',
+        e2eQueue: 'failed-deploy,db-overload,ssl-expired',
         e2eTimerSec: 90,
         e2eSeed: 13,
       }),
     );
-    await startJuniorShift(page);
-    await playThroughToPostmortem(page, { maxIncidents: 3 });
+    await playAchievementShiftToPostmortem(page);
 
     const download = page.getByRole('button', { name: 'Download Report' });
-    const copy = page.getByRole('button', { name: 'Copy Report' });
     await download.scrollIntoViewIfNeeded();
-    await expect(download).toBeVisible();
-    await expect(copy).toBeVisible();
     const box = await download.boundingBox();
     expect(box).toBeTruthy();
     expect(box!.width).toBeGreaterThan(100);
+
+    // Must remain clickable while toasts are still visible (no dismiss / no expiry wait).
+    await expect(page.locator('.toast-stack .toast').first()).toBeVisible();
+    await assertHitTestable(page, 'Download Report');
+    await assertHitTestable(page, 'Copy Report');
+    await assertHitTestable(page, 'Return Home');
     await assertNoHorizontalOverflow(page);
   });
 

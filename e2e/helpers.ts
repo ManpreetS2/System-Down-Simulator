@@ -161,3 +161,61 @@ export async function assertNoHorizontalOverflow(page: Page): Promise<void> {
     `horizontal overflow: scrollWidth=${overflow.scrollWidth} clientWidth=${overflow.clientWidth}`,
   ).toBeLessThanOrEqual(overflow.clientWidth + 1);
 }
+
+/** Ensure achievement toasts can fire for this shift (empty unlock list). */
+export async function clearStoredAchievements(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    try {
+      localStorage.setItem('system-down:achievements', '[]');
+    } catch {
+      // ignore
+    }
+  });
+}
+
+/**
+ * Assert a control is hit-testable at its center (not covered by toasts/overlays).
+ * Uses elementFromPoint — toBeVisible() alone is not enough when fixed UI occludes.
+ */
+export async function assertHitTestable(
+  page: Page,
+  name: string | RegExp,
+): Promise<void> {
+  const button = page.getByRole('button', { name });
+  await button.scrollIntoViewIfNeeded();
+  await expect(button).toBeVisible();
+
+  const probe = await button.evaluate((el) => {
+    const rect = el.getBoundingClientRect();
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + rect.height / 2;
+    const top = document.elementFromPoint(x, y);
+    const hit = !!top && (top === el || el.contains(top));
+    return {
+      hit,
+      x,
+      y,
+      topTag: top?.nodeName ?? null,
+      topClass:
+        top instanceof HTMLElement ? top.className.toString().slice(0, 120) : null,
+      topText: (top?.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 100),
+    };
+  });
+  expect(probe.hit, `elementFromPoint missed button "${String(name)}": ${JSON.stringify(probe)}`).toBe(
+    true,
+  );
+
+  // Playwright's trial click also fails when another element intercepts pointer events.
+  await button.click({ trial: true });
+}
+
+/** Reach postmortem with several achievements unlocked (toasts still visible). */
+export async function playAchievementShiftToPostmortem(page: Page): Promise<void> {
+  await startJuniorShift(page);
+  await playThroughToPostmortem(page, { maxIncidents: 6 });
+  await expect(page.getByRole('heading', { name: 'Incident Postmortem' })).toBeVisible();
+  // Wait until at least one achievement toast is on screen — do not dismiss or wait for expiry.
+  await expect(page.locator('.toast-stack .toast').first()).toBeVisible({ timeout: 10_000 });
+  const toastCount = await page.locator('.toast-stack .toast').count();
+  expect(toastCount, 'expected achievement toasts while testing footer hit-targets').toBeGreaterThan(0);
+}
