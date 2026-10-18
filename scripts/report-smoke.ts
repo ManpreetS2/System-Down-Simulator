@@ -8,10 +8,13 @@ import {
   buildPostmortemMarkdown,
   computeStats,
   gradeFor,
+  isShiftFinished,
   postmortemFilename,
+  postmortemStatusTag,
   rankFor,
 } from '../src/game/report';
 import type { DecisionRecord, GameState } from '../src/types';
+import { formatScore, sanitizeMarkdownFragment } from '../src/utils/markdown';
 
 let failures = 0;
 function assert(cond: boolean, label: string): void {
@@ -105,11 +108,13 @@ console.log('Report: completed shift markdown');
   assert(md.startsWith('# Incident Postmortem'), 'report has Markdown title');
   assert(md.includes('**Status:** Shift complete'), 'completed shift status');
   assert(md.includes('**Difficulty:** Junior'), 'difficulty label present');
+  assert(isShiftFinished(state), 'isShiftFinished true when no game-over reason');
+  assert(postmortemStatusTag(state) === 'complete', 'status tag is complete');
   const grade = gradeFor(state.score, state.queue.length, true);
   const rank = rankFor(state.score, state.records.length);
   assert(md.includes(`- **Grade:** ${grade}`), `grade matches helper (${grade})`);
   assert(md.includes(`- **Rank:** ${rank}`), `rank matches helper (${rank})`);
-  assert(md.includes('**Final score:** 200'), 'final score present');
+  assert(md.includes(`**Final score:** ${formatScore(200)}`), 'final score present (locale-stable)');
   assert(md.includes('## Key metrics'), 'key metrics section');
   assert(md.includes('## Incident timeline'), 'timeline section');
   assert(md.includes('Failed Deploy'), 'timeline includes first incident');
@@ -119,16 +124,15 @@ console.log('Report: completed shift markdown');
   assert(md.includes('## Final company state'), 'final company state section');
   assert(!md.includes('## Early termination'), 'no early-termination section when finished');
   const name = postmortemFilename(state, new Date('2026-10-17T12:00:00Z'));
-  assert(name.endsWith('.md'), 'filename ends with .md');
-  assert(name.includes('junior'), 'filename includes difficulty');
-  assert(name.includes('complete'), 'filename marks completed shift');
+  assert(name === 'incident-postmortem-2026-10-17-junior-complete.md', 'filename exact for completed shift');
 }
 
 console.log('Report: early failure markdown');
 {
+  const reason =
+    'System health hit zero. The platform went completely dark and leadership called the shift.';
   const state = baseOverState({
-    gameOverReason:
-      'System health hit zero. The platform went completely dark and leadership called the shift.',
+    gameOverReason: reason,
     records: [
       makeRecord({
         quality: 'failure',
@@ -157,11 +161,18 @@ console.log('Report: early failure markdown');
     minHealth: 0,
   });
   const md = buildPostmortemMarkdown(state);
+  assert(!isShiftFinished(state), 'isShiftFinished false on early end');
+  assert(postmortemStatusTag(state) === 'ended-early', 'status tag is ended-early');
   assert(md.includes('**Status:** Shift ended early'), 'early-failure status');
   assert(md.includes('## Early termination'), 'early termination heading');
-  assert(md.includes('System health hit zero'), 'includes game-over reason');
-  assert(md.includes('ended-early') || postmortemFilename(state).includes('ended-early'), 'filename tags early end');
-  assert(md.includes('Backfired') || md.includes('failure') || md.includes('-40'), 'failure outcomes reflected');
+  assert(md.includes(reason), 'includes exact game-over reason');
+  assert(
+    postmortemFilename(state, new Date('2026-10-17T12:00:00Z')) ===
+      'incident-postmortem-2026-10-17-junior-ended-early.md',
+    'filename exact for early end',
+  );
+  assert(md.includes('Outcome: Backfired · -40 pts'), 'failure outcome uses Backfired label and -40 pts');
+  assert(md.includes('Outcome: Backfired · -30 pts'), 'second failure outcome present');
 }
 
 console.log('Report: timed-out incidents markdown');
@@ -195,12 +206,13 @@ console.log('Report: timed-out incidents markdown');
   const stats = computeStats(state.records);
   assert(stats.timeouts === 2, 'stats count timeouts');
   const md = buildPostmortemMarkdown(state);
-  assert(md.includes('Timed out'), 'timeline labels timeouts');
+  assert(md.includes('Outcome: Timed out · -50 pts'), 'first timeout outcome exact');
+  assert(md.includes('Outcome: Timed out · -45 pts'), 'second timeout outcome exact');
   assert(md.includes('No response before the countdown expired.'), 'timeout action wording');
   assert(md.includes('| Timed out | 2 |'), 'metrics table shows timeout count');
   assert(
-    md.toLowerCase().includes('time out') || md.toLowerCase().includes('timer'),
-    'recommendations mention timeouts',
+    md.includes('You let 2 incidents time out with no response.'),
+    'recommendations include exact timeout guidance',
   );
 }
 
@@ -225,6 +237,40 @@ console.log('Report: empty incident history');
   assert(md.includes('| Avg response time | — |'), 'dash for empty avg response');
   assert(md.includes('## Recommendations'), 'still emits recommendations');
   assert(computeStats([]).accuracyPct === 0, 'empty stats accuracy is 0');
+}
+
+console.log('Report: open-response markdown sanitization');
+{
+  const dirty =
+    '# Injected heading\n| broken | table |\n- list item with **stars**';
+  assert(
+    sanitizeMarkdownFragment(dirty) ===
+      '\\# Injected heading \\| broken \\| table \\| - list item with **stars**',
+    'sanitize flattens newlines and escapes leading/table structural chars',
+  );
+  const state = baseOverState({
+    records: [
+      makeRecord({
+        responseMode: 'open',
+        actionLabel: `Open response: ${dirty}`,
+        explanation: `Line1\n## oops\nmore | pipes`,
+        score: 55,
+      }),
+    ],
+    score: 55,
+  });
+  const md = buildPostmortemMarkdown(state);
+  assert(!md.includes('\n## oops\n'), 'explanation newlines do not inject headings');
+  assert(md.includes('Action: Open response:'), 'open response action prefix preserved');
+  assert(md.includes('\\|'), 'pipes escaped in open-response content');
+  assert(!/^# Injected heading$/m.test(md), 'leading hash does not create a top-level heading from user text');
+}
+
+console.log('Report: locale-stable score formatting');
+{
+  assert(formatScore(1234) === '1,234', 'formatScore uses ASCII grouping');
+  assert(formatScore(-50) === '-50', 'formatScore handles negatives');
+  assert(formatScore(650) === '650', 'formatScore leaves small ints ungrouped');
 }
 
 console.log('Report: engine-produced completed junior shift');
@@ -255,7 +301,7 @@ console.log('Report: engine-produced completed junior shift');
   const md = buildPostmortemMarkdown(s);
   assert(md.includes('# Incident Postmortem'), 'engine shift yields a report');
   assert(s.records.every((r) => md.includes(r.incidentTitle)), 'every record title appears');
-  assert(md.includes(`**Final score:** ${s.score.toLocaleString()}`), 'score matches engine state');
+  assert(md.includes(`**Final score:** ${formatScore(s.score)}`), 'score matches engine state');
 }
 
 console.log(failures === 0 ? '\nALL REPORT CHECKS PASSED' : `\n${failures} REPORT CHECK(S) FAILED`);

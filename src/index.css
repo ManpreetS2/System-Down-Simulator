@@ -1492,9 +1492,10 @@ button:focus-visible,
 }
 
 .pm-export-feedback {
-  min-height: 1.25em;
+  min-height: 1.35em;
   margin: 0;
   font-size: 0.9rem;
+  line-height: 1.35em;
   color: var(--text-faint);
   text-align: center;
 }

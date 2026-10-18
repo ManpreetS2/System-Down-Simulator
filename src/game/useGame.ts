@@ -16,6 +16,7 @@ import {
 } from '../utils/storage';
 import { defaultGrader } from './grader';
 import { initialState, reducer, shuffle } from './engine';
+import { isViteTestMode, mulberry32, readTestHooks } from './testHooks';
 
 export interface Toast {
   id: string;
@@ -32,6 +33,7 @@ export function useGame() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const unlockedRef = useRef(unlocked);
   unlockedRef.current = unlocked;
+  const rollRef = useRef<() => number>(() => Math.random());
 
   useEffect(() => {
     setSoundEnabled(soundOn);
@@ -56,7 +58,20 @@ export function useGame() {
 
   const start = useCallback((difficulty: DifficultyId, openResponsePreferred?: boolean) => {
     const config = DIFFICULTIES[difficulty];
-    const queue = shuffle(INCIDENTS.map((i) => i.id)).slice(0, config.incidentCount);
+    let queue = shuffle(INCIDENTS.map((i) => i.id)).slice(0, config.incidentCount);
+    rollRef.current = () => Math.random();
+
+    // Test-mode only — fixed queue + seeded rolls for Playwright.
+    if (isViteTestMode()) {
+      const hooks = readTestHooks();
+      if (hooks?.queue?.length) {
+        queue = hooks.queue.filter((id) => INCIDENTS.some((incident) => incident.id === id));
+      }
+      if (hooks?.seed != null) {
+        rollRef.current = mulberry32(hooks.seed);
+      }
+    }
+
     saveDifficulty(difficulty);
     setIsNewHighScore(false);
     sfx.click();
@@ -75,7 +90,7 @@ export function useGame() {
   }, []);
 
   const choose = useCallback((actionId: string) => {
-    dispatch({ type: 'CHOOSE', actionId, roll: Math.random(), now: Date.now() });
+    dispatch({ type: 'CHOOSE', actionId, roll: rollRef.current(), now: Date.now() });
   }, []);
 
   const submitOpenResponse = useCallback(

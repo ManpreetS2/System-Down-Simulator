@@ -26,12 +26,14 @@ import {
   buildRecommendations,
   computeStats,
   gradeFor,
+  isShiftFinished,
   postmortemFilename,
   rankFor,
 } from '../game/report';
 import type { DecisionRecord } from '../types';
 import { copyTextToClipboard, downloadTextFile } from '../utils/export';
 import { formatClock, formatMoney } from '../utils/format';
+import { formatScore } from '../utils/markdown';
 
 function qualityMeta(record: DecisionRecord) {
   if (record.timedOut)
@@ -49,13 +51,15 @@ export function PostmortemScreen({ game }: { game: Game }) {
   const { state } = game;
   const config = DIFFICULTIES[state.difficulty];
   const stats = computeStats(state.records);
-  const finished = state.gameOverReason === null;
+  const finished = isShiftFinished(state);
   const grade = gradeFor(state.score, state.queue.length, finished);
   const rank = rankFor(state.score, Math.max(1, state.records.length));
   const recommendations = buildRecommendations(state, stats);
   const [feedback, setFeedback] = useState<ExportFeedback>(null);
+  const [liveNonce, setLiveNonce] = useState(0);
   const [copyBusy, setCopyBusy] = useState(false);
   const feedbackTimer = useRef<number | null>(null);
+  const copyButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     return () => {
@@ -65,10 +69,15 @@ export function PostmortemScreen({ game }: { game: Game }) {
 
   function showFeedback(next: ExportFeedback, holdMs = 4000) {
     if (feedbackTimer.current !== null) window.clearTimeout(feedbackTimer.current);
-    setFeedback(next);
-    if (next) {
-      feedbackTimer.current = window.setTimeout(() => setFeedback(null), holdMs);
-    }
+    // Clear then set so identical messages re-announce in the aria-live region.
+    setFeedback(null);
+    setLiveNonce((n) => n + 1);
+    window.requestAnimationFrame(() => {
+      setFeedback(next);
+      if (next) {
+        feedbackTimer.current = window.setTimeout(() => setFeedback(null), holdMs);
+      }
+    });
   }
 
   function handleDownload() {
@@ -85,6 +94,7 @@ export function PostmortemScreen({ game }: { game: Game }) {
   }
 
   async function handleCopy() {
+    if (copyBusy) return;
     setCopyBusy(true);
     try {
       const markdown = buildPostmortemMarkdown(state);
@@ -101,6 +111,8 @@ export function PostmortemScreen({ game }: { game: Game }) {
       });
     } finally {
       setCopyBusy(false);
+      // Keep keyboard focus on Copy even if the fallback temporarily moved it.
+      copyButtonRef.current?.focus({ preventScroll: true });
     }
   }
 
@@ -128,9 +140,9 @@ export function PostmortemScreen({ game }: { game: Game }) {
           )}
         </div>
         <div className="pm-score">
-          <span className="pm-score-value mono">{state.score.toLocaleString()}</span>
+          <span className="pm-score-value mono">{formatScore(state.score)}</span>
           <span className="pm-score-label">final score</span>
-          <span className="pm-score-best">best: {game.highScore.toLocaleString()}</span>
+          <span className="pm-score-best">best: {formatScore(game.highScore)}</span>
         </div>
       </header>
 
@@ -291,10 +303,11 @@ export function PostmortemScreen({ game }: { game: Game }) {
             Download Report
           </button>
           <button
+            ref={copyButtonRef}
             type="button"
             className="btn btn-ghost btn-lg"
             onClick={() => void handleCopy()}
-            disabled={copyBusy}
+            aria-busy={copyBusy}
           >
             <ClipboardCopy size={17} aria-hidden="true" />
             {copyBusy ? 'Copying…' : 'Copy Report'}
@@ -315,11 +328,13 @@ export function PostmortemScreen({ game }: { game: Game }) {
           </button>
         </div>
         <p
+          key={liveNonce}
           className={`pm-export-feedback${feedback ? ` is-${feedback.tone}` : ''}`}
           role="status"
           aria-live="polite"
+          aria-atomic="true"
         >
-          {feedback?.message ?? ''}
+          {feedback?.message ?? '\u00a0'}
         </p>
       </footer>
     </main>

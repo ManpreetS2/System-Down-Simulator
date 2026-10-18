@@ -1,6 +1,19 @@
 import { DIFFICULTIES, MAX_SCORE_PER_INCIDENT } from '../data/difficulty';
 import type { DecisionRecord, GameState } from '../types';
 import { formatClock, formatMoney } from '../utils/format';
+import { formatScore, sanitizeMarkdownFragment } from '../utils/markdown';
+
+/** Shift finished all planned incidents without an early collapse. */
+export function isShiftFinished(state: Pick<GameState, 'gameOverReason'>): boolean {
+  return state.gameOverReason === null;
+}
+
+/** Filename status tag — prefers early-end when a reason exists. */
+export function postmortemStatusTag(state: Pick<GameState, 'gameOverReason' | 'phase'>): string {
+  if (state.gameOverReason !== null) return 'ended-early';
+  if (state.phase === 'over') return 'complete';
+  return 'shift';
+}
 
 export type Grade = 'S' | 'A' | 'B' | 'C' | 'D' | 'F';
 
@@ -161,8 +174,7 @@ export function postmortemFilename(state: GameState, when = new Date()): string 
   const y = when.getFullYear();
   const m = String(when.getMonth() + 1).padStart(2, '0');
   const d = String(when.getDate()).padStart(2, '0');
-  const finished = state.gameOverReason === null && state.phase === 'over';
-  const tag = finished ? 'complete' : state.gameOverReason ? 'ended-early' : 'shift';
+  const tag = postmortemStatusTag(state);
   return `incident-postmortem-${y}-${m}-${d}-${state.difficulty}-${tag}.md`;
 }
 
@@ -173,7 +185,7 @@ export function postmortemFilename(state: GameState, when = new Date()): string 
 export function buildPostmortemMarkdown(state: GameState): string {
   const config = DIFFICULTIES[state.difficulty];
   const stats = computeStats(state.records);
-  const finished = state.gameOverReason === null;
+  const finished = isShiftFinished(state);
   const grade = gradeFor(state.score, state.queue.length, finished);
   const rank = rankFor(state.score, Math.max(1, state.records.length));
   const recommendations = buildRecommendations(state, stats);
@@ -185,14 +197,14 @@ export function buildPostmortemMarkdown(state: GameState): string {
   lines.push(`- **Difficulty:** ${config.label}`);
   lines.push(`- **Grade:** ${grade}`);
   lines.push(`- **Rank:** ${rank}`);
-  lines.push(`- **Final score:** ${state.score.toLocaleString()}`);
+  lines.push(`- **Final score:** ${formatScore(state.score)}`);
   lines.push(`- **Shift duration:** ${formatClock(state.shiftElapsedSec)}`);
   lines.push('');
 
   if (!finished && state.gameOverReason) {
     lines.push('## Early termination');
     lines.push('');
-    lines.push(state.gameOverReason);
+    lines.push(sanitizeMarkdownFragment(state.gameOverReason));
     lines.push('');
   }
 
@@ -218,13 +230,19 @@ export function buildPostmortemMarkdown(state: GameState): string {
     lines.push('## Notable decisions');
     lines.push('');
     if (stats.strongest) {
+      const label = stats.strongest.actionLabel
+        ? sanitizeMarkdownFragment(stats.strongest.actionLabel)
+        : 'No action taken';
       lines.push(
-        `- **Strongest call** (${scoreLine(stats.strongest.score)} pts): ${stats.strongest.incidentTitle} — ${stats.strongest.actionLabel ?? 'No action taken'}`,
+        `- **Strongest call** (${scoreLine(stats.strongest.score)} pts): ${sanitizeMarkdownFragment(stats.strongest.incidentTitle)} — ${label}`,
       );
     }
     if (stats.mostDamaging) {
+      const label = stats.mostDamaging.actionLabel
+        ? sanitizeMarkdownFragment(stats.mostDamaging.actionLabel)
+        : 'No response before the timer expired';
       lines.push(
-        `- **Most damaging** (${scoreLine(stats.mostDamaging.score)} pts): ${stats.mostDamaging.incidentTitle} — ${stats.mostDamaging.actionLabel ?? 'No response before the timer expired'}`,
+        `- **Most damaging** (${scoreLine(stats.mostDamaging.score)} pts): ${sanitizeMarkdownFragment(stats.mostDamaging.incidentTitle)} — ${label}`,
       );
     }
     lines.push('');
@@ -246,19 +264,19 @@ export function buildPostmortemMarkdown(state: GameState): string {
     for (const [i, record] of state.records.entries()) {
       const action = record.timedOut
         ? 'No response before the countdown expired.'
-        : (record.actionLabel ?? 'Unknown action');
+        : sanitizeMarkdownFragment(record.actionLabel ?? 'Unknown action');
       const responseBit = record.timedOut
         ? ''
         : ` · responded in ${Math.round(record.responseSec)}s`;
       lines.push(
-        `${i + 1}. **T+${formatClock(record.atShiftSec)}** · ${record.severity} · ${record.incidentTitle}`,
+        `${i + 1}. **T+${formatClock(record.atShiftSec)}** · ${record.severity} · ${sanitizeMarkdownFragment(record.incidentTitle)}`,
       );
       lines.push(`   - Action: ${action}`);
       lines.push(
         `   - Outcome: ${qualityLabel(record)} · ${scoreLine(record.score)} pts${responseBit}`,
       );
       if (record.explanation) {
-        lines.push(`   - Notes: ${record.explanation}`);
+        lines.push(`   - Notes: ${sanitizeMarkdownFragment(record.explanation)}`);
       }
       lines.push('');
     }
@@ -270,7 +288,7 @@ export function buildPostmortemMarkdown(state: GameState): string {
     lines.push('_No recommendations generated for this shift._');
   } else {
     recommendations.forEach((rec, i) => {
-      lines.push(`${i + 1}. ${rec}`);
+      lines.push(`${i + 1}. ${sanitizeMarkdownFragment(rec)}`);
     });
   }
   lines.push('');
