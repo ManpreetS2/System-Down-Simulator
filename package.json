@@ -14,7 +14,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test:engine": "tsx scripts/engine-smoke.ts && tsx scripts/report-smoke.ts",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "assert:no-e2e-hooks": "bash scripts/assert-no-e2e-hooks.sh"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",

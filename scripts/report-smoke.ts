@@ -242,28 +242,50 @@ console.log('Report: empty incident history');
 console.log('Report: open-response markdown sanitization');
 {
   const dirty =
-    '# Injected heading\n| broken | table |\n- list item with **stars**';
-  assert(
-    sanitizeMarkdownFragment(dirty) ===
-      '\\# Injected heading \\| broken \\| table \\| - list item with **stars**',
-    'sanitize flattens newlines and escapes leading/table structural chars',
-  );
+    '# Injected heading\n| broken | table |\n<img src=x onerror=alert(1)>\n[link](javascript:alert(1))\n`code` and **stars**';
+  const cleaned = sanitizeMarkdownFragment(dirty);
+  assert(!cleaned.includes('\n'), 'sanitize flattens newlines to a single line');
+  assert(cleaned.startsWith('\\#'), 'sanitize escapes leading hash');
+  assert(cleaned.includes('\\|'), 'sanitize escapes table pipes');
+  assert(cleaned.includes('&lt;img'), 'sanitize neutralizes raw HTML open tags');
+  assert(cleaned.includes('&gt;'), 'sanitize neutralizes raw HTML close brackets');
+  assert(cleaned.includes('\\[link\\]'), 'sanitize escapes link brackets');
+  assert(cleaned.includes('\\`code\\`'), 'sanitize escapes backticks');
+  assert(!cleaned.includes('<img'), 'raw img tag does not survive sanitization');
+
   const state = baseOverState({
     records: [
       makeRecord({
         responseMode: 'open',
         actionLabel: `Open response: ${dirty}`,
-        explanation: `Line1\n## oops\nmore | pipes`,
+        explanation: `Line1\n## oops\nmore | pipes and <b>html</b> plus [x](\`y\`)`,
         score: 55,
       }),
     ],
     score: 55,
   });
   const md = buildPostmortemMarkdown(state);
+  const headingCount = (md.match(/^## /gm) ?? []).length;
+  assert(headingCount === 5, `expected 5 ## headings in completed report, got ${headingCount}`);
+  assert((md.match(/^\| Metric \| Value \|$/m) ?? []).length === 1, 'metrics table header intact once');
+  assert((md.match(/^\| --- \| --- \|$/m) ?? []).length === 1, 'metrics table separator intact once');
   assert(!md.includes('\n## oops\n'), 'explanation newlines do not inject headings');
   assert(md.includes('Action: Open response:'), 'open response action prefix preserved');
   assert(md.includes('\\|'), 'pipes escaped in open-response content');
+  assert(md.includes('&lt;'), 'HTML angle brackets neutralized in report');
+  assert(md.includes('\\[') && md.includes('\\]'), 'link brackets escaped in report');
+  assert(md.includes('\\`'), 'backticks escaped in report');
   assert(!/^# Injected heading$/m.test(md), 'leading hash does not create a top-level heading from user text');
+
+  // Static content must stay readable (no odd escapes on authored recommendations).
+  const cleanState = baseOverState({
+    records: [makeRecord({ score: 90, quality: 'success' })],
+    score: 90,
+  });
+  const cleanMd = buildPostmortemMarkdown(cleanState);
+  assert(cleanMd.includes('Failed Deploy'), 'static incident title unchanged');
+  assert(!cleanMd.includes('&lt;'), 'clean report has no HTML entity noise');
+  assert(!cleanMd.includes('\\`'), 'clean report has no backtick escapes');
 }
 
 console.log('Report: locale-stable score formatting');

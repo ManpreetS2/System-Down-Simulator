@@ -29,6 +29,7 @@ pnpm-debug.log*
 playwright-report/
 playwright-artifacts/
 test-results/
+artifacts/
 
 # OS files
 .DS_Store

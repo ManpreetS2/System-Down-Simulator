@@ -41,6 +41,15 @@ jobs:
       - name: Production build
         run: npm run build
 
+      - name: Assert e2e hooks absent from production bundle
+        run: npm run assert:no-e2e-hooks -- dist
+
+      - name: Pages build
+        run: npm run build:pages
+
+      - name: Assert e2e hooks absent from pages bundle
+        run: npm run assert:no-e2e-hooks -- dist
+
   e2e:
     name: Playwright e2e
     runs-on: ubuntu-latest

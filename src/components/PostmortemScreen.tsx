@@ -60,6 +60,7 @@ export function PostmortemScreen({ game }: { game: Game }) {
   const [copyBusy, setCopyBusy] = useState(false);
   const feedbackTimer = useRef<number | null>(null);
   const copyButtonRef = useRef<HTMLButtonElement>(null);
+  const copyBusyRef = useRef(false);
 
   useEffect(() => {
     return () => {
@@ -94,7 +95,9 @@ export function PostmortemScreen({ game }: { game: Game }) {
   }
 
   async function handleCopy() {
-    if (copyBusy) return;
+    // Ref guard: React state can be stale across a fast double-click.
+    if (copyBusyRef.current) return;
+    copyBusyRef.current = true;
     setCopyBusy(true);
     try {
       const markdown = buildPostmortemMarkdown(state);
@@ -110,6 +113,7 @@ export function PostmortemScreen({ game }: { game: Game }) {
         message: 'Clipboard is unavailable. Try Download Report instead.',
       });
     } finally {
+      copyBusyRef.current = false;
       setCopyBusy(false);
       // Keep keyboard focus on Copy even if the fallback temporarily moved it.
       copyButtonRef.current?.focus({ preventScroll: true });
@@ -329,6 +333,7 @@ export function PostmortemScreen({ game }: { game: Game }) {
         </div>
         <p
           key={liveNonce}
+          data-feedback-nonce={liveNonce}
           className={`pm-export-feedback${feedback ? ` is-${feedback.tone}` : ''}`}
           role="status"
           aria-live="polite"

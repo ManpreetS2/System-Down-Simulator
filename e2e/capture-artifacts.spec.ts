@@ -1,18 +1,25 @@
 /**
  * Manual-style artifact capture for PR screenshots.
- * Run with: npx playwright test e2e/capture-artifacts.spec.ts
+ * Run with: CAPTURE_ARTIFACTS=1 ARTIFACTS_DIR=... npx playwright test
+ *
+ * ARTIFACTS_DIR defaults to repo-relative `artifacts/screenshots` (gitignored).
  */
 import { expect, test } from '@playwright/test';
+import fs from 'node:fs';
 import path from 'node:path';
 import {
   e2eUrl,
   playThroughToPostmortem,
   startJuniorShift,
+  tabToButton,
 } from './helpers';
 
-const OUT = '/opt/cursor/artifacts/screenshots';
+const OUT =
+  process.env.ARTIFACTS_DIR?.trim() ||
+  path.join(process.cwd(), 'artifacts', 'screenshots');
 
 test('capture postmortem UX artifacts', async ({ page }) => {
+  fs.mkdirSync(OUT, { recursive: true });
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
 
   // Desktop finished postmortem
@@ -24,28 +31,25 @@ test('capture postmortem UX artifacts', async ({ page }) => {
   await playThroughToPostmortem(page, { maxIncidents: 4 });
   await page.getByRole('button', { name: 'Download Report' }).scrollIntoViewIfNeeded();
   await page.screenshot({
-    path: path.join(OUT, 'postmortem_harden_desktop_1440.png'),
+    path: path.join(OUT, 'postmortem_review_desktop_1440.png'),
     fullPage: false,
   });
 
   // Keyboard focus on Download Report via real Tab (triggers :focus-visible)
   await page.locator('body').click({ position: { x: 8, y: 8 } });
-  for (let i = 0; i < 40; i += 1) {
-    await page.keyboard.press('Tab');
-    const focused = await page.evaluate(() => document.activeElement?.textContent?.trim() ?? '');
-    if (focused.includes('Download Report')) break;
-  }
+  await tabToButton(page, 'Download Report');
   await expect(page.getByRole('button', { name: 'Download Report' })).toBeFocused();
   await page.screenshot({
-    path: path.join(OUT, 'postmortem_harden_focus_download.png'),
+    path: path.join(OUT, 'postmortem_review_focus_download.png'),
     fullPage: false,
   });
 
   // Copy success feedback
-  await page.getByRole('button', { name: 'Copy Report' }).click();
+  await tabToButton(page, 'Copy Report');
+  await page.keyboard.press('Enter');
   await expect(page.getByRole('status').filter({ hasText: 'Report copied to clipboard.' })).toBeVisible();
   await page.screenshot({
-    path: path.join(OUT, 'postmortem_harden_copy_success.png'),
+    path: path.join(OUT, 'postmortem_review_copy_success.png'),
     fullPage: false,
   });
 
@@ -53,7 +57,7 @@ test('capture postmortem UX artifacts', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('button', { name: 'Copy Report' }).scrollIntoViewIfNeeded();
   await page.screenshot({
-    path: path.join(OUT, 'postmortem_harden_mobile_390.png'),
+    path: path.join(OUT, 'postmortem_review_mobile_390.png'),
     fullPage: false,
   });
 
@@ -88,7 +92,7 @@ test('capture postmortem UX artifacts', async ({ page }) => {
   ).toBeVisible();
   await page.getByRole('button', { name: 'Copy Report' }).scrollIntoViewIfNeeded();
   await page.screenshot({
-    path: path.join(OUT, 'postmortem_harden_copy_failure.png'),
+    path: path.join(OUT, 'postmortem_review_copy_failure.png'),
     fullPage: false,
   });
 });

@@ -16,6 +16,40 @@ export async function startJuniorShift(page: Page): Promise<void> {
   await expect(page.getByRole('heading', { name: /Incident Postmortem/i })).toHaveCount(0);
 }
 
+export async function startSeniorOpenShift(page: Page): Promise<void> {
+  await page.getByRole('radio', { name: /Senior/i }).click();
+  await page.getByRole('checkbox', { name: /Open Response/i }).check();
+  await page.getByRole('button', { name: /Start Shift/i }).click();
+  await expect(page.getByRole('heading', { name: /Incident Postmortem/i })).toHaveCount(0);
+}
+
+/** Tab until an element matching `name` is focused (keyboard-only navigation). */
+export async function tabToButton(page: Page, name: string | RegExp, maxTabs = 60): Promise<void> {
+  const matcher = typeof name === 'string' ? name : name.source;
+  for (let i = 0; i < maxTabs; i += 1) {
+    await page.keyboard.press('Tab');
+    const focused = await page.evaluate(() => {
+      const el = document.activeElement;
+      if (!(el instanceof HTMLElement)) return '';
+      return (el.getAttribute('aria-label') ?? el.textContent ?? '').replace(/\s+/g, ' ').trim();
+    });
+    if (
+      typeof name === 'string'
+        ? focused.includes(name)
+        : new RegExp(matcher, 'i').test(focused)
+    ) {
+      return;
+    }
+  }
+  throw new Error(`tabToButton: could not focus "${String(name)}" within ${maxTabs} tabs`);
+}
+
+export async function investigateFirstSource(page: Page): Promise<void> {
+  const btn = page.locator('.investigate-btn').first();
+  await expect(btn).toBeVisible({ timeout: 20_000 });
+  await btn.click();
+}
+
 /** Click the first available remediation action on the current incident. */
 export async function chooseFirstAction(page: Page): Promise<void> {
   const action = page.locator('.action-list .action-btn').first();
